@@ -1,7 +1,7 @@
 // Docs: docs/templates/inbound-inbox.md
 // Cloudflare Workers config — read by the "Deploy to Cloudflare" button, which provisions
-// the D1 database below and rewrites database_id, then prompts for the secrets listed in
-// .dev.vars.example (MAILKITE_API_KEY, MAILKITE_WEBHOOK_SECRET).
+// the D1 database below and rewrites database_id, then prompts for the secret listed in
+// .dev.vars.example (MAILKITE_WEBHOOK_SECRET — sign-in is OAuth, so there's no API key).
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "inbound-inbox",

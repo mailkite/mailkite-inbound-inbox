@@ -6,14 +6,13 @@ import { dirname, resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { MailKite } from 'mailkite';
 import { createApp } from '../core/app.js';
+import { createMailKiteAuth } from '../core/auth.js';
 import { SqliteStore } from './sqlite-store.js';
 
-const apiKey = process.env.MAILKITE_API_KEY;
+// The ONLY required secret — sign-in is OAuth, so there's no API key here (see .env.example).
 const webhookSecret = process.env.MAILKITE_WEBHOOK_SECRET;
-if (!apiKey || !webhookSecret) {
-  console.error(
-    'Missing env: set MAILKITE_API_KEY and MAILKITE_WEBHOOK_SECRET (see .env.example).'
-  );
+if (!webhookSecret) {
+  console.error('Missing env: set MAILKITE_WEBHOOK_SECRET (see .env.example).');
   process.exit(1);
 }
 
@@ -22,8 +21,12 @@ mkdirSync(dirname(dbPath), { recursive: true });
 
 const app = createApp({
   store: new SqliteStore(dbPath),
-  mailer: new MailKite(apiKey),
   webhookSecret,
+  auth: createMailKiteAuth({ issuer: process.env.MAILKITE_OAUTH_ISSUER }),
+  clientFor: (accessToken) => {
+    const mk = new MailKite(accessToken);
+    return { send: (m) => mk.send(m), listDomains: () => mk.listDomains() as Promise<Array<{ domain: string }>> };
+  },
 });
 
 const port = Number(process.env.PORT ?? 3000);

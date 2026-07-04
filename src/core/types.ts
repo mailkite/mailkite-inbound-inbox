@@ -1,5 +1,6 @@
 // Docs: docs/templates/inbound-inbox.md
 // Shared contract between the webhook receiver, the storage adapters, and the UI.
+import type { Context } from 'hono';
 
 /** The `email.received` event MailKite POSTs to your webhook. */
 export interface InboundEvent {
@@ -46,8 +47,8 @@ export interface MessageStore {
   get(id: string): Promise<StoredMessage | null>;
 }
 
-/** The slice of the MailKite SDK client the app needs — injectable so tests can stub sends. */
-export interface Mailer {
+/** The slice of the MailKite SDK client the app needs — injectable so tests can stub the network. */
+export interface ApiClient {
   send(message: {
     from: string;
     to: string;
@@ -55,4 +56,26 @@ export interface Mailer {
     text?: string;
     inReplyTo?: string;
   }): Promise<{ id: string; status: string }>;
+  /** The signed-in user's domains — used to scope the shared store to mail they actually own. */
+  listDomains(): Promise<Array<{ domain: string }>>;
+}
+
+/** @deprecated kept as the send-only sub-shape; use {@link ApiClient}. */
+export type Mailer = Pick<ApiClient, "send">;
+
+/** The signed-in user for one request. */
+export interface SignedIn {
+  accessToken: string;
+}
+
+/**
+ * The authentication seam. Production wires MailKite OAuth (see `core/auth.ts`); tests inject a
+ * fake so the app can be exercised offline. `resolve` returns the current user (refreshing the
+ * token as needed) or null when signed out; the three handshake methods back the /auth/* routes.
+ */
+export interface Auth {
+  resolve(c: Context): Promise<SignedIn | null>;
+  login(c: Context): Promise<Response> | Response;
+  callback(c: Context): Promise<Response> | Response;
+  logout(c: Context): Promise<Response> | Response;
 }

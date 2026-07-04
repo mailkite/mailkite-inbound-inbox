@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/node/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/app.test.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "cf:dev": "wrangler dev",
     "cf:deploy": "wrangler deploy"
   },

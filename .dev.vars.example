@@ -1,4 +1,7 @@
 # Copy to .dev.vars for `npm run cf:dev`. The "Deploy to Cloudflare" button reads this file
 # to know which secrets to prompt for at deploy time.
-MAILKITE_API_KEY="mk_live_xxx"
+#
+# The only secret — sign-in is OAuth (no API key; the app self-registers its OAuth client).
 MAILKITE_WEBHOOK_SECRET="whsec_xxx"
+# Optional: override the OAuth issuer for local testing. Defaults to https://mcp.mailkite.dev.
+# MAILKITE_OAUTH_ISSUER="http://localhost:8787"

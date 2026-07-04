@@ -17,8 +17,7 @@ spec:
       instance_size_slug: basic-xxs
       instance_count: 1
       envs:
-        - key: MAILKITE_API_KEY
-          type: SECRET
+        # The only secret — sign-in is OAuth (no API key; the app self-registers its OAuth client).
         - key: MAILKITE_WEBHOOK_SECRET
           type: SECRET
         # App Platform has an ephemeral filesystem — the SQLite inbox resets on each

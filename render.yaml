@@ -7,10 +7,9 @@ services:
     plan: starter # SQLite needs a persistent disk; the free plan has no disks.
     healthCheckPath: /healthz
     envVars:
-      - key: MAILKITE_API_KEY
-        sync: false # prompted at deploy time, never committed
+      # The only secret — sign-in is OAuth (no API key; the app self-registers its OAuth client).
       - key: MAILKITE_WEBHOOK_SECRET
-        sync: false
+        sync: false # prompted at deploy time, never committed
       - key: DATABASE_PATH
         value: /var/data/inbox.db
     disk:

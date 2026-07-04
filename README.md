@@ -5,6 +5,11 @@ inbound email into a signed webhook; this template receives it, verifies the sig
 official [`mailkite`](https://www.npmjs.com/package/mailkite) SDK, stores the message, renders a
 minimal server-side inbox UI, and lets you reply — threaded — with one form.
 
+**It's private.** The inbox lives on a public URL, so it's gated behind **sign-in with your
+MailKite account** (OAuth 2.1 + PKCE) — never a shared API key that would expose your mail to
+anyone with the link. Each visitor only sees mail for the domains *they* own, and replies send as
+them. That means **one secret** (a webhook signing secret); the OAuth client registers itself.
+
 One small TypeScript [Hono](https://hono.dev) app, two runtimes:
 
 - **Cloudflare Workers + D1** (`cloudflare/`) — serverless, durable storage, one-click button.
@@ -22,7 +27,8 @@ One small TypeScript [Hono](https://hono.dev) app, two runtimes:
 | **Fly.io** | `fly launch --from https://github.com/mailkite/mailkite-inbound-inbox` (creates the app + volume from `fly.toml`) |
 | **Deno Deploy** | New-style Deno Deploy runs Node apps from GitHub: create an app at [console.deno.com](https://console.deno.com), point it at this repo with entrypoint `src/node/server.ts`. Storage is ephemeral there — prefer the Cloudflare or Fly targets for a persistent inbox. |
 
-Every button prompts for the same two secrets: `MAILKITE_API_KEY` and `MAILKITE_WEBHOOK_SECRET`.
+Every button prompts for a single secret: `MAILKITE_WEBHOOK_SECRET` (sign-in is OAuth — there's no
+API key or OAuth client id/secret to enter).
 
 ## Before you deploy: verify a domain (2 minutes, required)
 
@@ -32,11 +38,11 @@ step no mail will ever reach the app.
 1. Sign up at [app.mailkite.dev](https://app.mailkite.dev) and add a domain (or buy one there,
    pre-wired).
 2. Add the DNS records it shows you — **MX** for receiving (plus SPF + DKIM for sending replies).
-3. Wait for the domain to show **verified**, then grab:
-   - an **API key** (`mk_live_…`) — dashboard → API keys → `MAILKITE_API_KEY`
-   - your **webhook signing secret** (`whsec_…`) — dashboard → Webhooks → `MAILKITE_WEBHOOK_SECRET`
+3. Wait for the domain to show **verified**, then grab your **webhook signing secret** (`whsec_…`)
+   — dashboard → Webhooks → `MAILKITE_WEBHOOK_SECRET`. That's the only secret you set; there's no
+   API key here (sign-in is OAuth).
 
-## After you deploy: point the webhook here
+## After you deploy: point the webhook here, then sign in
 
 In the dashboard (or with the SDK/CLI), set your domain's webhook to your deployment:
 
@@ -44,16 +50,18 @@ In the dashboard (or with the SDK/CLI), set your domain's webhook to your deploy
 https://<your-deployment>/inbound
 ```
 
-Send an email to `anything@yourdomain.com`, refresh `/` — it's in the inbox. Click it, type a
-reply, hit **Send reply**: the reply goes out over your verified domain via `mk.send()`, threaded
-with `inReplyTo`.
+Open your deployment — it redirects you to **sign in with MailKite** (Google / GitHub / email),
+you approve access, and land in *your* inbox (mail for the domains you own). Send an email to
+`anything@yourdomain.com`, refresh — it's there. Click it, type a reply, hit **Send reply**: it
+goes out over your verified domain via `mk.send()`, threaded with `inReplyTo`. "Sign out" is in the
+header.
 
 ## Environment
 
 | Variable | Required | What |
 |---|---|---|
-| `MAILKITE_API_KEY` | ✓ | MailKite API key (`mk_live_…`) — used to send replies. |
-| `MAILKITE_WEBHOOK_SECRET` | ✓ | Webhook signing secret (`whsec_…`) — verifies `x-mailkite-signature` on `POST /inbound`. |
+| `MAILKITE_WEBHOOK_SECRET` | ✓ | Webhook signing secret (`whsec_…`) — verifies `x-mailkite-signature` on `POST /inbound`. **The only required var** (sign-in is OAuth; the app self-registers its OAuth client). |
+| `MAILKITE_OAUTH_ISSUER` | | Override the OAuth issuer (defaults to `https://mcp.mailkite.dev`). Local testing against a dev API only. |
 | `PORT` | | Node runtime only. Default `3000`. |
 | `DATABASE_PATH` | | Node runtime only — SQLite file path. Default `./data/inbox.db` (`/data/inbox.db` in Docker; mount a volume there to keep mail across deploys). |
 
@@ -63,8 +71,8 @@ Node runtime (SQLite):
 
 ```bash
 npm install
-cp .env.example .env        # fill in your key + webhook secret
-npm run dev                 # http://localhost:3000
+cp .env.example .env        # fill in MAILKITE_WEBHOOK_SECRET
+npm run dev                 # http://localhost:3000 → redirects you to sign in
 ```
 
 Cloudflare runtime (local D1, no account needed):
@@ -80,28 +88,35 @@ set the public URL + `/inbound` as your domain's webhook.
 Tests and typecheck:
 
 ```bash
-npm test            # signed-webhook fixtures, storage, reply flow — no network
+npm test            # sign-in gating, domain scoping, webhook fixtures, reply, PKCE — no network
 npm run typecheck
 ```
 
 ## How it works
 
 ```
-inbound email ─▶ MailKite ─▶ POST /inbound  (verify x-mailkite-signature via SDK)
+sign in ─▶ OAuth 2.1 + PKCE ─▶ session cookie (your short-lived access token)
+inbound email ─▶ MailKite ─▶ POST /inbound  (verify x-mailkite-signature via SDK, PUBLIC)
                                   │
                                   ▼
                     MessageStore (SQLite or D1)
                                   │
-GET /  ◀── server-rendered inbox (Hono JSX) ──▶ GET /messages/:id ──▶ POST /reply ─▶ mk.send()
+GET / (signed in) ◀── inbox scoped to YOUR domains ──▶ /messages/:id ──▶ POST /reply ─▶ mk.send()
 ```
 
-- `src/core/` — runtime-agnostic app: routes, webhook verification, UI, `MessageStore` interface.
+- `src/core/` — runtime-agnostic app: routes, the auth gate, OAuth (`oauth.ts` / `auth.ts` /
+  `session.ts`), webhook verification, UI, `MessageStore` interface.
 - `src/node/` — Node entry + `better-sqlite3` adapter.
 - `cloudflare/` — Workers entry + D1 adapter (table auto-created; no migrations to run).
 
-All MailKite calls go through the official SDK: `MailKite.verifyWebhook()` for signature checks,
-`MailKite.replyOk()` for the ack body, `mk.send()` for replies. Untrusted email HTML renders in a
-fully sandboxed `<iframe>`, never in the page itself.
+The UI + reply routes are gated by `auth.resolve()` (a valid session, refreshed as needed); the
+webhook is public (MailKite signs it). The store is shared, so each request is **scoped to the
+domains the signed-in user owns** (`mk.listDomains()`) — mail for a domain you don't own reads as
+"not found". All MailKite calls go through the official SDK, constructed with the user's **OAuth
+access token** (`new MailKite(accessToken)`, sent as `Authorization: Bearer`, just like an API
+key): `MailKite.verifyWebhook()` for signatures, `MailKite.replyOk()` for the ack, `mk.send()` for
+replies, `mk.listDomains()` for scoping. Untrusted email HTML renders in a fully sandboxed
+`<iframe>`, never in the page itself.
 
 ## License
 

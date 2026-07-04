@@ -72,7 +72,7 @@ const Layout: FC<PropsWithChildren<{ title: string }>> = ({ title, children }) =
             <a href="/">Inbound Inbox</a>
           </h1>
           <span class="sub">
-            powered by <a href="https://mailkite.dev">MailKite</a>
+            <a href="/auth/logout">Sign out</a> · powered by <a href="https://mailkite.dev">MailKite</a>
           </span>
         </header>
         {children}
