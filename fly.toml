@@ -1,0 +1,27 @@
+# Docs: docs/templates/inbound-inbox.md
+# Fly.io config — `fly launch --from https://github.com/mailkite/mailkite-inbound-inbox` reads this.
+app = "inbound-inbox"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  DATABASE_PATH = "/data/inbox.db"
+
+# Persistent volume for the SQLite inbox (fly launch creates it from this section).
+[mounts]
+  source = "inbox_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

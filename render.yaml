@@ -1,0 +1,19 @@
+# Docs: docs/templates/inbound-inbox.md
+# Render Blueprint — https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: inbound-inbox
+    runtime: docker
+    plan: starter # SQLite needs a persistent disk; the free plan has no disks.
+    healthCheckPath: /healthz
+    envVars:
+      - key: MAILKITE_API_KEY
+        sync: false # prompted at deploy time, never committed
+      - key: MAILKITE_WEBHOOK_SECRET
+        sync: false
+      - key: DATABASE_PATH
+        value: /var/data/inbox.db
+    disk:
+      name: inbox-data
+      mountPath: /var/data
+      sizeGB: 1

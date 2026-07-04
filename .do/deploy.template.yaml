@@ -1,0 +1,28 @@
+# Docs: docs/templates/inbound-inbox.md
+# DigitalOcean App Platform template — https://docs.digitalocean.com/products/app-platform/how-to/add-deploy-do-button/
+spec:
+  name: inbound-inbox
+  region: nyc
+  services:
+    - name: web
+      dockerfile_path: Dockerfile
+      source_dir: /
+      github:
+        repo: mailkite/mailkite-inbound-inbox
+        branch: main
+        deploy_on_push: true
+      http_port: 3000
+      health_check:
+        http_path: /healthz
+      instance_size_slug: basic-xxs
+      instance_count: 1
+      envs:
+        - key: MAILKITE_API_KEY
+          type: SECRET
+        - key: MAILKITE_WEBHOOK_SECRET
+          type: SECRET
+        # App Platform has an ephemeral filesystem — the SQLite inbox resets on each
+        # deploy. Fine for trying it out; move DATABASE_PATH to a managed volume/DB
+        # (or use the Cloudflare + D1 variant) for durable storage.
+        - key: DATABASE_PATH
+          value: /tmp/inbox.db

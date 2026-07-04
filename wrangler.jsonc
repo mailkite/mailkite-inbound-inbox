@@ -1,0 +1,23 @@
+// Docs: docs/templates/inbound-inbox.md
+// Cloudflare Workers config — read by the "Deploy to Cloudflare" button, which provisions
+// the D1 database below and rewrites database_id, then prompts for the secrets listed in
+// .dev.vars.example (MAILKITE_API_KEY, MAILKITE_WEBHOOK_SECRET).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "inbound-inbox",
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2025-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "inbound-inbox",
+      // Deploying manually (not via the button)? Run `npx wrangler d1 create inbound-inbox`
+      // and paste the id it prints here. `npm run cf:dev` works locally without it.
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

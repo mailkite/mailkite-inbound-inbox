@@ -1,0 +1,4 @@
+# Copy to .dev.vars for `npm run cf:dev`. The "Deploy to Cloudflare" button reads this file
+# to know which secrets to prompt for at deploy time.
+MAILKITE_API_KEY="mk_live_xxx"
+MAILKITE_WEBHOOK_SECRET="whsec_xxx"
