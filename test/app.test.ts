@@ -41,6 +41,8 @@ function makeApp(
     domains?: string[];
     /** the account's existing inbound routes (default: none). */
     routes?: Array<{ match_pattern: string; action: string; destination: string | null }>;
+    /** account-wide env fallback secret; pass `null` to run with NO env secret (per-route only). */
+    webhookSecret?: string | null;
   } = {},
 ): {
   app: Hono;
@@ -65,11 +67,11 @@ function makeApp(
     },
     async setWebhook(id, body) {
       webhooksSet.push({ id, url: body.url });
-      return {};
+      return { signingSecret: 'whsec_catchall_secret' };
     },
     async createRoute(body) {
       routesCreated.push(body);
-      return {};
+      return { signing_secret: 'whsec_inbox_secret' };
     },
   };
   const auth: Auth = {
@@ -80,7 +82,8 @@ function makeApp(
     callback: (c) => c.redirect('/'),
     logout: (c) => c.redirect('/'),
   };
-  const app = createApp({ store: new SqliteStore(':memory:'), webhookSecret: SECRET, auth, clientFor: () => client });
+  const webhookSecret = opts.webhookSecret === null ? undefined : (opts.webhookSecret ?? SECRET);
+  const app = createApp({ store: new SqliteStore(':memory:'), webhookSecret, auth, clientFor: () => client });
   return { app, sent, webhooksSet, routesCreated };
 }
 
@@ -307,4 +310,44 @@ test('/connect requires sign-in (redirect to /auth/login)', async () => {
   assert.match(res.headers.get('location') ?? '', /^\/auth\/login/);
   assert.equal(webhooksSet.length, 0);
   assert.equal(routesCreated.length, 0);
+});
+
+// --- Per-route signing secrets (zero-env-secret path) ----------------------
+const connect = (app: Hono, domainId = 'dom_0') =>
+  app.request('/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ domainId }).toString(),
+  });
+
+test('connecting a domain caches its per-route secret — /inbound verifies with NO env secret', async () => {
+  const { app } = makeApp({ webhookSecret: null }); // no account-wide MAILKITE_WEBHOOK_SECRET
+  await connect(app); // empty domain → setWebhook → caches whsec_catchall_secret
+  const body = JSON.stringify(EVENT);
+  const res = await postInbound(app, body, sign(body, 'whsec_catchall_secret'));
+  assert.equal(res.status, 200);
+  assert.match(await (await app.request('/')).text(), /Hello there/); // stored + rendered
+});
+
+test('a domain that already routes mail caches the inbox@ route secret on connect', async () => {
+  const { app } = makeApp({
+    webhookSecret: null,
+    routes: [{ match_pattern: 'gabe@myapp.dev', action: 'forward', destination: 'x@gmail.com' }],
+  });
+  await connect(app); // has routes → createRoute inbox@ → caches whsec_inbox_secret
+  const body = JSON.stringify(EVENT);
+  assert.equal((await postInbound(app, body, sign(body, 'whsec_inbox_secret'))).status, 200);
+});
+
+test('with no env secret and nothing connected, /inbound rejects (cold start)', async () => {
+  const { app } = makeApp({ webhookSecret: null });
+  const body = JSON.stringify(EVENT);
+  assert.equal((await postInbound(app, body, sign(body, 'whsec_anything'))).status, 401);
+});
+
+test('a forged delivery is rejected even when per-route secrets are cached', async () => {
+  const { app } = makeApp({ webhookSecret: null });
+  await connect(app);
+  const body = JSON.stringify(EVENT);
+  assert.equal((await postInbound(app, body, sign(body, 'whsec_wrong'))).status, 401);
 });

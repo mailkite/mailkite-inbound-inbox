@@ -8,7 +8,8 @@ minimal server-side inbox UI, and lets you reply — threaded — with one form.
 **It's private.** The inbox lives on a public URL, so it's gated behind **sign-in with your
 MailKite account** (OAuth 2.1 + PKCE) — never a shared API key that would expose your mail to
 anyone with the link. Each visitor only sees mail for the domains *they* own, and replies send as
-them. That means **one secret** (a webhook signing secret); the OAuth client registers itself.
+them. That means **zero secrets to set** — connecting a domain caches that route's own signing
+secret automatically, and the OAuth client registers itself.
 
 One small TypeScript [Hono](https://hono.dev) app, two runtimes:
 
@@ -27,7 +28,8 @@ One small TypeScript [Hono](https://hono.dev) app, two runtimes:
 | **Fly.io** | `fly launch --from https://github.com/mailkite/mailkite-inbound-inbox` (creates the app + volume from `fly.toml`) |
 | **Deno Deploy** | New-style Deno Deploy runs Node apps from GitHub: create an app at [console.deno.com](https://console.deno.com), point it at this repo with entrypoint `src/node/server.ts`. Storage is ephemeral there — prefer the Cloudflare or Fly targets for a persistent inbox. |
 
-Every button prompts for a single secret: `MAILKITE_WEBHOOK_SECRET` (sign-in is OAuth — there's no
+`MAILKITE_WEBHOOK_SECRET` is **optional** — leave it blank and connect a domain after deploy; the app
+caches that route's per-route signing secret to verify inbound. (sign-in is OAuth — there's no
 API key or OAuth client id/secret to enter).
 
 ## Before you deploy: verify a domain (2 minutes, required)
@@ -38,9 +40,10 @@ step no mail will ever reach the app.
 1. Sign up at [app.mailkite.dev](https://app.mailkite.dev) and add a domain (or buy one there,
    pre-wired).
 2. Add the DNS records it shows you — **MX** for receiving (plus SPF + DKIM for sending replies).
-3. Wait for the domain to show **verified**, then grab your **webhook signing secret** (`whsec_…`)
-   — dashboard → Webhooks → `MAILKITE_WEBHOOK_SECRET`. That's the only secret you set; there's no
-   API key here (sign-in is OAuth).
+3. Wait for the domain to show **verified**. That's it — you don't need to set any secret: after
+   deploy you'll sign in and click **Connect**, and the app caches that route's own signing secret to
+   verify inbound. (Prefer to pre-set one? `MAILKITE_WEBHOOK_SECRET` — dashboard → Webhooks — is an
+   optional account-wide fallback. There's no API key here; sign-in is OAuth.)
 
 ## After you deploy: sign in, then connect your domain in one click
 
@@ -72,7 +75,7 @@ hit **Send reply**: it goes out over your verified domain via `mk.send()`, threa
 
 | Variable | Required | What |
 |---|---|---|
-| `MAILKITE_WEBHOOK_SECRET` | ✓ | Webhook signing secret (`whsec_…`) — verifies `x-mailkite-signature` on `POST /inbound`. **The only required var** (sign-in is OAuth; the app self-registers its OAuth client). |
+| `MAILKITE_WEBHOOK_SECRET` | | **Optional** account-wide fallback signing secret (`whsec_…`). Not needed: connecting a domain caches that route's own per-route secret, which `/inbound` verifies against. Set it only to verify with the account secret, or before anyone has connected. (Sign-in is OAuth; no API key.) |
 | `MAILKITE_OAUTH_ISSUER` | | Override the OAuth issuer (defaults to `https://mcp.mailkite.dev`). Local testing against a dev API only. |
 | `PORT` | | Node runtime only. Default `3000`. |
 | `DATABASE_PATH` | | Node runtime only — SQLite file path. Default `./data/inbox.db` (`/data/inbox.db` in Docker; mount a volume there to keep mail across deploys). |

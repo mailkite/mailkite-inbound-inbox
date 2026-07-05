@@ -16,8 +16,13 @@ import { InboxPage, MessagePage, NotFoundPage } from './ui.js';
 
 export interface AppDeps {
   store: MessageStore;
-  /** Webhook signing secret from the MailKite dashboard (whsec_…). */
-  webhookSecret: string;
+  /**
+   * Optional account-wide webhook signing secret (`whsec_…`) — a fallback the receiver can set via
+   * `MAILKITE_WEBHOOK_SECRET`. Not required: connecting a domain caches that route's own per-route
+   * secret (`store.putSecret`), and `/inbound` verifies against those. Set it only if you route via
+   * the account-wide secret or want mail to verify before anyone has signed in + connected.
+   */
+  webhookSecret?: string;
   /** Authentication seam — production wires MailKite OAuth (`createMailKiteAuth`); tests stub it. */
   auth: Auth;
   /** Build an API client for a signed-in user's access token. Production: `(t) => new MailKite(t)`. */
@@ -126,11 +131,15 @@ export function createApp({ store, webhookSecret, auth, clientFor }: AppDeps): H
       const mine = (await client.listRoutes()).filter((r) => routeInDomain(r.match_pattern, target.domain));
       const already = mine.some((r) => r.action === 'webhook' && r.destination === self);
       if (!already) {
+        // Capture the new route's per-route signing secret so /inbound can verify its deliveries
+        // with no env secret configured (that's what makes MAILKITE_WEBHOOK_SECRET optional).
         if (mine.length === 0) {
-          await client.setWebhook(target.id, { url: self }); // empty domain → full catch-all
+          const res = await client.setWebhook(target.id, { url: self }); // empty domain → full catch-all
+          if (res.signingSecret) await store.putSecret(res.signingSecret);
         } else {
           // Domain already routes mail — don't touch the default; add a dedicated address instead.
-          await client.createRoute({ match: `inbox@${target.domain}`, action: 'webhook', destination: self });
+          const res = await client.createRoute({ match: `inbox@${target.domain}`, action: 'webhook', destination: self });
+          if (res.signing_secret) await store.putSecret(res.signing_secret);
         }
       }
       return c.redirect(`/?connected=${encodeURIComponent(target.domain)}`);
@@ -154,7 +163,11 @@ export function createApp({ store, webhookSecret, auth, clientFor }: AppDeps): H
     // Verify against the RAW body bytes — parsed-and-re-serialized JSON breaks the HMAC.
     const raw = await c.req.text();
     const signature = c.req.header('x-mailkite-signature') ?? '';
-    if (!MailKite.verifyWebhook(signature, raw, webhookSecret)) {
+    // Each route signs with its own per-route secret, so try every secret we know: the cached
+    // per-route secrets (captured at connect) plus the optional account-wide env fallback. The
+    // signature binds the body, so only the right secret verifies — trying several is safe.
+    const secrets = [...(await store.listSecrets()), ...(webhookSecret ? [webhookSecret] : [])];
+    if (!secrets.some((s) => MailKite.verifyWebhook(signature, raw, s))) {
       return c.text('bad signature', 401);
     }
 

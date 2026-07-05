@@ -45,6 +45,14 @@ export interface MessageStore {
   /** Newest first. */
   list(limit?: number): Promise<StoredMessage[]>;
   get(id: string): Promise<StoredMessage | null>;
+  /**
+   * Cache a route's webhook signing secret (captured when a domain is connected). MailKite signs
+   * each route's deliveries with its own per-route secret, so `/inbound` verifies against these
+   * (plus the optional `MAILKITE_WEBHOOK_SECRET` env fallback). Idempotent by secret value.
+   */
+  putSecret(secret: string): Promise<void>;
+  /** Every cached signing secret — the candidate set `/inbound` verifies an incoming signature against. */
+  listSecrets(): Promise<string[]>;
 }
 
 /** The slice of the MailKite SDK client the app needs — injectable so tests can stub the network. */
@@ -65,9 +73,9 @@ export interface ApiClient {
    * routes at all — otherwise we add a specific-address route (below) so we never touch the user's
    * existing default webhook / forwards.
    */
-  setWebhook(id: string, body: { url: string }): Promise<unknown>;
+  setWebhook(id: string, body: { url: string }): Promise<{ signingSecret?: string }>;
   /** Add a specific inbound route (e.g. `inbox@domain` → this app) without disturbing other routes. */
-  createRoute(body: { match: string; action: string; destination: string }): Promise<unknown>;
+  createRoute(body: { match: string; action: string; destination: string }): Promise<{ signing_secret?: string | null }>;
 }
 
 /** @deprecated kept as the send-only sub-shape; use {@link ApiClient}. */

@@ -35,20 +35,35 @@ export class D1Store implements MessageStore {
   constructor(private db: D1Database) {}
 
   private init(): Promise<unknown> {
-    this.ready ??= this.db.exec(
-      `CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        from_addr TEXT NOT NULL,
-        to_addr TEXT NOT NULL,
-        subject TEXT,
-        text TEXT,
-        html TEXT,
-        thread_id TEXT,
-        spam TEXT,
-        received_at INTEGER NOT NULL
-      )`.replace(/\s+/g, ' ')
-    );
+    // D1 `exec` splits statements on newlines, so run the two CREATEs as separate calls.
+    this.ready ??= (async () => {
+      await this.db.exec(
+        `CREATE TABLE IF NOT EXISTS messages (
+          id TEXT PRIMARY KEY,
+          from_addr TEXT NOT NULL,
+          to_addr TEXT NOT NULL,
+          subject TEXT,
+          text TEXT,
+          html TEXT,
+          thread_id TEXT,
+          spam TEXT,
+          received_at INTEGER NOT NULL
+        )`.replace(/\s+/g, ' ')
+      );
+      await this.db.exec('CREATE TABLE IF NOT EXISTS webhook_secrets (secret TEXT PRIMARY KEY)');
+    })();
     return this.ready;
+  }
+
+  async putSecret(secret: string): Promise<void> {
+    await this.init();
+    await this.db.prepare('INSERT OR IGNORE INTO webhook_secrets (secret) VALUES (?)').bind(secret).run();
+  }
+
+  async listSecrets(): Promise<string[]> {
+    await this.init();
+    const { results } = await this.db.prepare('SELECT secret FROM webhook_secrets').all<{ secret: string }>();
+    return results.map((r) => r.secret);
   }
 
   async put(m: StoredMessage): Promise<void> {

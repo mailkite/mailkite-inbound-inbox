@@ -46,6 +46,16 @@ export class SqliteStore implements MessageStore {
       spam TEXT,
       received_at INTEGER NOT NULL
     )`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS webhook_secrets (secret TEXT PRIMARY KEY)`);
+  }
+
+  async putSecret(secret: string): Promise<void> {
+    this.db.prepare('INSERT OR IGNORE INTO webhook_secrets (secret) VALUES (?)').run(secret);
+  }
+
+  async listSecrets(): Promise<string[]> {
+    const rows = this.db.prepare('SELECT secret FROM webhook_secrets').all() as Array<{ secret: string }>;
+    return rows.map((r) => r.secret);
   }
 
   async put(m: StoredMessage): Promise<void> {
