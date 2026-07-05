@@ -39,7 +39,8 @@ header.site .sub { font-size: 13px; opacity: .6; }
 .setup-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid #e2e8f0; }
 .setup-row:first-of-type { border-top: 0; }
 @media (prefers-color-scheme: dark) { .setup-row { border-color: #1e293b; } }
-.setup-row .setup-domain { font-weight: 600; }
+.setup-row .setup-domain { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.setup-row .setup-hint { font-weight: 400; font-family: inherit; font-size: 12px; opacity: .55; }
 .setup-row button { padding: 7px 14px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .setup-row button:hover { background: #1d4ed8; }
 .setup-foot { padding: 10px 16px; font-size: 12px; opacity: .6; border-top: 1px solid #e2e8f0; }
@@ -104,7 +105,7 @@ function when(ms: number): string {
 
 export const InboxPage: FC<{
   messages: StoredMessage[];
-  domains: Array<{ id: string; domain: string; connected: boolean }>;
+  domains: Array<{ id: string; domain: string; connected: boolean; empty: boolean }>;
   selfInbound: string;
   connected?: string;
   error?: string;
@@ -128,17 +129,25 @@ export const InboxPage: FC<{
       </div>
     ) : unconnected.length > 0 ? (
       <div class="card setup">
-        <div class="setup-head">Finish setup — point a domain’s mail at this inbox</div>
+        <div class="setup-head">Finish setup — route a domain’s mail to this inbox</div>
         {unconnected.map((d) => (
           <form class="setup-row" method="post" action="/connect">
             <input type="hidden" name="domainId" value={d.id} />
-            <span class="setup-domain">{d.domain}</span>
-            <button type="submit">Connect {d.domain}</button>
+            <span class="setup-domain">
+              {d.empty ? `*@${d.domain}` : `inbox@${d.domain}`}
+              <span class="setup-hint">
+                {d.empty
+                  ? ' — captures all mail for this domain'
+                  : ' — dedicated address; your existing routes stay untouched'}
+              </span>
+            </span>
+            <button type="submit">{d.empty ? `Connect ${d.domain}` : `Connect inbox@${d.domain}`}</button>
           </form>
         ))}
         <div class="setup-foot">
-          Sets the domain’s catch-all webhook to <code>{selfInbound}</code> using your signed-in
-          session — no API key stored. Reversible anytime in the MailKite dashboard.
+          Routes mail to <code>{selfInbound}</code> using your signed-in session — no API key stored,
+          and it never overwrites a domain’s existing default webhook. Reversible anytime in the
+          MailKite dashboard.
         </div>
       </div>
     ) : null}

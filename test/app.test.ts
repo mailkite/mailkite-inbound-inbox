@@ -39,16 +39,18 @@ function makeApp(
     failSend?: boolean;
     signedIn?: boolean;
     domains?: string[];
-    /** domain → its current catch-all webhook URL (default: unconnected/null). */
-    webhookUrls?: Record<string, string>;
+    /** the account's existing inbound routes (default: none). */
+    routes?: Array<{ match_pattern: string; action: string; destination: string | null }>;
   } = {},
 ): {
   app: Hono;
   sent: SentMessage[];
   webhooksSet: Array<{ id: string; url: string }>;
+  routesCreated: Array<{ match: string; action: string; destination: string }>;
 } {
   const sent: SentMessage[] = [];
   const webhooksSet: Array<{ id: string; url: string }> = [];
+  const routesCreated: Array<{ match: string; action: string; destination: string }> = [];
   const client: ApiClient = {
     async send(message) {
       if (opts.failSend) throw new Error('boom');
@@ -56,14 +58,17 @@ function makeApp(
       return { id: 'msg_out_1', status: 'queued' };
     },
     async listDomains() {
-      return (opts.domains ?? ['myapp.dev']).map((domain, i) => ({
-        id: `dom_${i}`,
-        domain,
-        webhookUrl: opts.webhookUrls?.[domain] ?? null,
-      }));
+      return (opts.domains ?? ['myapp.dev']).map((domain, i) => ({ id: `dom_${i}`, domain }));
+    },
+    async listRoutes() {
+      return opts.routes ?? [];
     },
     async setWebhook(id, body) {
       webhooksSet.push({ id, url: body.url });
+      return {};
+    },
+    async createRoute(body) {
+      routesCreated.push(body);
       return {};
     },
   };
@@ -76,7 +81,7 @@ function makeApp(
     logout: (c) => c.redirect('/'),
   };
   const app = createApp({ store: new SqliteStore(':memory:'), webhookSecret: SECRET, auth, clientFor: () => client });
-  return { app, sent, webhooksSet };
+  return { app, sent, webhooksSet, routesCreated };
 }
 
 function postInbound(app: Hono, body: string, signature: string): Promise<Response> {
@@ -205,16 +210,24 @@ test('POST /reply 404s for an unknown message id', async () => {
   assert.equal(res.status, 404);
 });
 
-test('the inbox offers a one-click Connect for a domain not yet pointing here', async () => {
-  const { app } = makeApp(); // myapp.dev, webhook unset
+test('an empty domain offers a full-capture Connect (*@domain)', async () => {
+  const { app } = makeApp(); // myapp.dev with no routes at all
   const inbox = await (await app.request('/')).text();
   assert.match(inbox, /Finish setup/);
+  assert.match(inbox, /\*@myapp\.dev/); // captures everything
   assert.match(inbox, /Connect myapp\.dev/);
-  assert.match(inbox, /http:\/\/localhost\/inbound/); // the target it will set
+  assert.match(inbox, /http:\/\/localhost\/inbound/); // the target it routes to
 });
 
-test("POST /connect points the owned domain's catch-all webhook at this deployment", async () => {
-  const { app, webhooksSet } = makeApp();
+test('a domain that already has routes offers a dedicated inbox@ address, not the catch-all', async () => {
+  const { app } = makeApp({ routes: [{ match_pattern: 'gabe@myapp.dev', action: 'forward', destination: 'x@gmail.com' }] });
+  const inbox = await (await app.request('/')).text();
+  assert.match(inbox, /Connect inbox@myapp\.dev/);
+  assert.doesNotMatch(inbox, /\*@myapp\.dev/); // never proposes clobbering the whole domain
+});
+
+test('POST /connect on an EMPTY domain sets the catch-all webhook', async () => {
+  const { app, webhooksSet, routesCreated } = makeApp();
   const res = await app.request('/connect', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -222,12 +235,48 @@ test("POST /connect points the owned domain's catch-all webhook at this deployme
   });
   assert.equal(res.status, 302);
   assert.equal(res.headers.get('location'), '/?connected=myapp.dev');
-  // Set via the signed-in user's token, at THIS deployment's own /inbound URL.
   assert.deepEqual(webhooksSet, [{ id: 'dom_0', url: 'http://localhost/inbound' }]);
+  assert.equal(routesCreated.length, 0);
 });
 
-test("POST /connect refuses a domain the signed-in user doesn't own (no webhook set)", async () => {
-  const { app, webhooksSet } = makeApp({ domains: ['myapp.dev'] });
+test('POST /connect on a domain WITH routes adds inbox@domain and never touches the default webhook', async () => {
+  // gabe@ forward + a *@ catch-all already in use — must NOT be clobbered.
+  const { app, webhooksSet, routesCreated } = makeApp({
+    routes: [
+      { match_pattern: 'gabe@myapp.dev', action: 'forward', destination: 'x@gmail.com' },
+      { match_pattern: '*@myapp.dev', action: 'webhook', destination: 'https://theirapp.com/hook' },
+    ],
+  });
+  const res = await app.request('/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ domainId: 'dom_0' }).toString(),
+  });
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('location'), '/?connected=myapp.dev');
+  assert.equal(webhooksSet.length, 0); // the existing catch-all is left alone
+  assert.deepEqual(routesCreated, [
+    { match: 'inbox@myapp.dev', action: 'webhook', destination: 'http://localhost/inbound' },
+  ]);
+});
+
+test('POST /connect is idempotent — a webhook route to us already exists → no-op', async () => {
+  const { app, webhooksSet, routesCreated } = makeApp({
+    routes: [{ match_pattern: 'inbox@myapp.dev', action: 'webhook', destination: 'http://localhost/inbound' }],
+  });
+  const res = await app.request('/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ domainId: 'dom_0' }).toString(),
+  });
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('location'), '/?connected=myapp.dev');
+  assert.equal(webhooksSet.length, 0);
+  assert.equal(routesCreated.length, 0);
+});
+
+test("POST /connect refuses a domain the signed-in user doesn't own (nothing written)", async () => {
+  const { app, webhooksSet, routesCreated } = makeApp({ domains: ['myapp.dev'] });
   const res = await app.request('/connect', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -235,17 +284,20 @@ test("POST /connect refuses a domain the signed-in user doesn't own (no webhook 
   });
   assert.equal(res.status, 404);
   assert.equal(webhooksSet.length, 0);
+  assert.equal(routesCreated.length, 0);
 });
 
 test('a domain already pointing here shows no Connect button', async () => {
-  const { app } = makeApp({ webhookUrls: { 'myapp.dev': 'http://localhost/inbound' } });
+  const { app } = makeApp({
+    routes: [{ match_pattern: '*@myapp.dev', action: 'webhook', destination: 'http://localhost/inbound' }],
+  });
   const inbox = await (await app.request('/')).text();
   assert.doesNotMatch(inbox, /Finish setup/);
   assert.doesNotMatch(inbox, /Connect myapp\.dev/);
 });
 
 test('/connect requires sign-in (redirect to /auth/login)', async () => {
-  const { app, webhooksSet } = makeApp({ signedIn: false });
+  const { app, webhooksSet, routesCreated } = makeApp({ signedIn: false });
   const res = await app.request('/connect', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -254,4 +306,5 @@ test('/connect requires sign-in (redirect to /auth/login)', async () => {
   assert.equal(res.status, 302);
   assert.match(res.headers.get('location') ?? '', /^\/auth\/login/);
   assert.equal(webhooksSet.length, 0);
+  assert.equal(routesCreated.length, 0);
 });

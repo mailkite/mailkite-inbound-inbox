@@ -56,13 +56,18 @@ export interface ApiClient {
     text?: string;
     inReplyTo?: string;
   }): Promise<{ id: string; status: string }>;
+  /** The signed-in user's domains (id + name) — scopes the shared store to mail they actually own. */
+  listDomains(): Promise<Array<{ id: string; domain: string }>>;
+  /** The user's inbound routes — used to detect what's already wired so connect never clobbers. */
+  listRoutes(): Promise<Array<{ match_pattern: string; action: string; destination: string | null }>>;
   /**
-   * The signed-in user's domains — each with its id and current catch-all webhook URL. Used both to
-   * scope the shared store to mail they own and to power the one-click "Connect this domain" button.
+   * Set a domain's **catch-all** (`*@domain`) webhook. Only used by connect when the domain has NO
+   * routes at all — otherwise we add a specific-address route (below) so we never touch the user's
+   * existing default webhook / forwards.
    */
-  listDomains(): Promise<Array<{ id: string; domain: string; webhookUrl: string | null }>>;
-  /** Point a domain's catch-all webhook at `url` — backs the one-click connect (SDK: `setWebhook`). */
   setWebhook(id: string, body: { url: string }): Promise<unknown>;
+  /** Add a specific inbound route (e.g. `inbox@domain` → this app) without disturbing other routes. */
+  createRoute(body: { match: string; action: string; destination: string }): Promise<unknown>;
 }
 
 /** @deprecated kept as the send-only sub-shape; use {@link ApiClient}. */

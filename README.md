@@ -47,10 +47,16 @@ step no mail will ever reach the app.
 Open your deployment — it redirects you to **sign in with MailKite** (Google / GitHub / email).
 Approve access and you land in *your* inbox (only mail for domains you own).
 
-If a domain's mail isn't pointed here yet, the inbox shows a **"Connect &lt;domain&gt;"** button.
-Click it and the app — using **your signed-in session, no API key** — sets that domain's catch-all
-webhook (`*@yourdomain`) to this deployment's `/inbound`. It only ever touches domains you own, and
-it's reversible anytime in the dashboard. That's the whole setup.
+If a domain's mail isn't pointed here yet, the inbox shows a **Connect** button for it. Click it and
+the app — using **your signed-in session, no API key** — routes that domain's mail here **without
+ever overwriting an existing webhook**:
+
+- A **fresh domain** (no routes) → sets the `*@yourdomain` catch-all, so all its mail arrives.
+- A domain that **already routes mail** (a default webhook, forwards, an agent…) → adds a dedicated
+  **`inbox@yourdomain`** route instead, so only that address flows here and your existing routes keep
+  working untouched.
+
+It only ever touches domains you own, and it's reversible anytime in the dashboard. That's the setup.
 
 Then send an email to `anything@yourdomain.com` and refresh — it's there. Click it, type a reply,
 hit **Send reply**: it goes out over your verified domain via `mk.send()`, threaded with

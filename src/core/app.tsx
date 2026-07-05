@@ -24,10 +24,14 @@ export interface AppDeps {
   clientFor: (accessToken: string) => ApiClient;
 }
 
-type OwnedDomain = { id: string; domain: string; webhookUrl: string | null };
+type OwnedDomain = { id: string; domain: string };
 type Vars = { client: ApiClient; ownedDomains: Set<string>; ownedDomainList: OwnedDomain[] };
 
 const domainOf = (addr: string): string => addr.split('@').pop()?.toLowerCase() ?? '';
+
+// Does a route's match pattern belong to this domain? (`*@domain`, `inbox@domain`, `gabe@domain`, …)
+const routeInDomain = (pattern: string, domain: string): boolean =>
+  pattern.toLowerCase().endsWith(`@${domain.toLowerCase()}`);
 
 // This deployment's own public origin, derived from the request so it's correct on every host
 // (Railway/Render/Fly/CF all sit behind a TLS proxy — honor x-forwarded-proto, don't assume the
@@ -79,11 +83,18 @@ export function createApp({ store, webhookSecret, auth, clientFor }: AppDeps): H
   app.get('/', async (c) => {
     const owned = c.get('ownedDomains');
     const self = selfInboundUrl(c);
-    const domains = c.get('ownedDomainList').map((d) => ({
-      id: d.id,
-      domain: d.domain,
-      connected: d.webhookUrl === self,
-    }));
+    const routes = await c.get('client').listRoutes();
+    const domains = c.get('ownedDomainList').map((d) => {
+      const mine = routes.filter((r) => routeInDomain(r.match_pattern, d.domain));
+      return {
+        id: d.id,
+        domain: d.domain,
+        // Already sending mail here? (a `*@domain` or `inbox@domain` webhook route → us)
+        connected: mine.some((r) => r.action === 'webhook' && r.destination === self),
+        // A domain with no routes at all is safe to capture wholesale; otherwise we add `inbox@`.
+        empty: mine.length === 0,
+      };
+    });
     const messages = (await store.list()).filter((m) => owned.has(domainOf(m.toAddr)));
     return c.html(
       <InboxPage
@@ -96,19 +107,35 @@ export function createApp({ store, webhookSecret, auth, clientFor }: AppDeps): H
     );
   });
 
-  // --- One-click connect: point a domain's catch-all webhook at THIS deployment --------------
-  // Uses the signed-in user's own OAuth token (never a stored API key), and only for a domain they
-  // own — so it can't hijack anyone else's webhook. Idempotent: re-clicking just re-sets the URL.
+  // --- One-click connect: route a domain's mail to THIS deployment, WITHOUT clobbering -------
+  // Acts as the signed-in user (their OAuth token — never a stored API key), only for a domain they
+  // own. Crucially it never overwrites an existing catch-all / default webhook:
+  //   • domain has NO routes at all → set the `*@domain` catch-all (safe: nothing to disturb).
+  //   • domain already has routes    → ADD a specific `inbox@domain` webhook route (fan-out; the
+  //     user's existing default webhook, forwards, and agent routes keep working untouched).
+  // Idempotent: if a webhook route to us already exists, it's a no-op.
   app.post('/connect', async (c) => {
     const form = await c.req.parseBody();
     const domainId = typeof form.domainId === 'string' ? form.domainId : '';
     const target = c.get('ownedDomainList').find((d) => d.id === domainId);
     if (!target) return c.html(<NotFoundPage />, 404); // not yours / unknown → don't reveal
+
+    const client = c.get('client');
+    const self = selfInboundUrl(c);
     try {
-      await c.get('client').setWebhook(target.id, { url: selfInboundUrl(c) });
+      const mine = (await client.listRoutes()).filter((r) => routeInDomain(r.match_pattern, target.domain));
+      const already = mine.some((r) => r.action === 'webhook' && r.destination === self);
+      if (!already) {
+        if (mine.length === 0) {
+          await client.setWebhook(target.id, { url: self }); // empty domain → full catch-all
+        } else {
+          // Domain already routes mail — don't touch the default; add a dedicated address instead.
+          await client.createRoute({ match: `inbox@${target.domain}`, action: 'webhook', destination: self });
+        }
+      }
       return c.redirect(`/?connected=${encodeURIComponent(target.domain)}`);
     } catch (e) {
-      const detail = e instanceof MailKiteError ? e.message : 'could not set webhook';
+      const detail = e instanceof MailKiteError ? e.message : 'could not connect the domain';
       return c.redirect(`/?error=${encodeURIComponent(detail)}`);
     }
   });

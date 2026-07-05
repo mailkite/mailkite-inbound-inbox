@@ -27,9 +27,11 @@ const app = createApp({
     const mk = new MailKite(accessToken);
     return {
       send: (m) => mk.send(m),
-      listDomains: () =>
-        mk.listDomains() as Promise<Array<{ id: string; domain: string; webhookUrl: string | null }>>,
+      listDomains: () => mk.listDomains() as Promise<Array<{ id: string; domain: string }>>,
+      listRoutes: () =>
+        mk.listRoutes() as Promise<Array<{ match_pattern: string; action: string; destination: string | null }>>,
       setWebhook: (id, body) => mk.setWebhook(id, body),
+      createRoute: (body) => mk.createRoute(body),
     };
   },
 });
