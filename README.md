@@ -21,7 +21,7 @@ One small TypeScript [Hono](https://hono.dev) app, two runtimes:
 | Platform | |
 |---|---|
 | **Cloudflare Workers** (D1 storage) | [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mailkite/mailkite-inbound-inbox) |
-| **Railway** | [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https%3A%2F%2Fgithub.com%2Fmailkite%2Fmailkite-inbound-inbox) |
+| **Railway** | [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/uaQWFr?referralCode=qAKUtj&utm_medium=integration&utm_source=template&utm_campaign=generic) |
 | **Render** | [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/mailkite/mailkite-inbound-inbox) |
 | **DigitalOcean** | [![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/mailkite/mailkite-inbound-inbox/tree/main) |
 | **Fly.io** | `fly launch --from https://github.com/mailkite/mailkite-inbound-inbox` (creates the app + volume from `fly.toml`) |
