@@ -56,8 +56,13 @@ export interface ApiClient {
     text?: string;
     inReplyTo?: string;
   }): Promise<{ id: string; status: string }>;
-  /** The signed-in user's domains — used to scope the shared store to mail they actually own. */
-  listDomains(): Promise<Array<{ domain: string }>>;
+  /**
+   * The signed-in user's domains — each with its id and current catch-all webhook URL. Used both to
+   * scope the shared store to mail they own and to power the one-click "Connect this domain" button.
+   */
+  listDomains(): Promise<Array<{ id: string; domain: string; webhookUrl: string | null }>>;
+  /** Point a domain's catch-all webhook at `url` — backs the one-click connect (SDK: `setWebhook`). */
+  setWebhook(id: string, body: { url: string }): Promise<unknown>;
 }
 
 /** @deprecated kept as the send-only sub-shape; use {@link ApiClient}. */

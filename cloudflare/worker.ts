@@ -34,7 +34,12 @@ export default {
       auth: createMailKiteAuth({ issuer: env.MAILKITE_OAUTH_ISSUER }),
       clientFor: (accessToken) => {
         const mk = new MailKite(accessToken);
-        return { send: (m) => mk.send(m), listDomains: () => mk.listDomains() as Promise<Array<{ domain: string }>> };
+        return {
+          send: (m) => mk.send(m),
+          listDomains: () =>
+            mk.listDomains() as Promise<Array<{ id: string; domain: string; webhookUrl: string | null }>>,
+          setWebhook: (id, body) => mk.setWebhook(id, body),
+        };
       },
     });
     return app.fetch(request, env, ctx as Parameters<Hono['fetch']>[2]);

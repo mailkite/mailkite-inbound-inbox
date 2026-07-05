@@ -42,19 +42,25 @@ step no mail will ever reach the app.
    — dashboard → Webhooks → `MAILKITE_WEBHOOK_SECRET`. That's the only secret you set; there's no
    API key here (sign-in is OAuth).
 
-## After you deploy: point the webhook here, then sign in
+## After you deploy: sign in, then connect your domain in one click
 
-In the dashboard (or with the SDK/CLI), set your domain's webhook to your deployment:
+Open your deployment — it redirects you to **sign in with MailKite** (Google / GitHub / email).
+Approve access and you land in *your* inbox (only mail for domains you own).
 
-```
-https://<your-deployment>/inbound
-```
+If a domain's mail isn't pointed here yet, the inbox shows a **"Connect &lt;domain&gt;"** button.
+Click it and the app — using **your signed-in session, no API key** — sets that domain's catch-all
+webhook (`*@yourdomain`) to this deployment's `/inbound`. It only ever touches domains you own, and
+it's reversible anytime in the dashboard. That's the whole setup.
 
-Open your deployment — it redirects you to **sign in with MailKite** (Google / GitHub / email),
-you approve access, and land in *your* inbox (mail for the domains you own). Send an email to
-`anything@yourdomain.com`, refresh — it's there. Click it, type a reply, hit **Send reply**: it
-goes out over your verified domain via `mk.send()`, threaded with `inReplyTo`. "Sign out" is in the
-header.
+Then send an email to `anything@yourdomain.com` and refresh — it's there. Click it, type a reply,
+hit **Send reply**: it goes out over your verified domain via `mk.send()`, threaded with
+`inReplyTo`. "Sign out" is in the header.
+
+> **Prefer to wire it by hand?** Set the domain's catch-all webhook — **Dashboard → Domains → your
+> domain → Webhook URL** (the catch-all field, *not* a Routes entry), or
+> `mk.setWebhook(domainId, { url: "https://<your-deployment>/inbound" })` — to
+> `https://<your-deployment>/inbound`. Either way, the signing secret on that screen must equal the
+> `MAILKITE_WEBHOOK_SECRET` you deployed, or `/inbound` rejects every delivery with `401`.
 
 ## Environment
 

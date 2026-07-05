@@ -34,11 +34,21 @@ const EVENT = {
 
 type SentMessage = Parameters<ApiClient['send']>[0];
 
-function makeApp(opts: { failSend?: boolean; signedIn?: boolean; domains?: string[] } = {}): {
+function makeApp(
+  opts: {
+    failSend?: boolean;
+    signedIn?: boolean;
+    domains?: string[];
+    /** domain → its current catch-all webhook URL (default: unconnected/null). */
+    webhookUrls?: Record<string, string>;
+  } = {},
+): {
   app: Hono;
   sent: SentMessage[];
+  webhooksSet: Array<{ id: string; url: string }>;
 } {
   const sent: SentMessage[] = [];
+  const webhooksSet: Array<{ id: string; url: string }> = [];
   const client: ApiClient = {
     async send(message) {
       if (opts.failSend) throw new Error('boom');
@@ -46,7 +56,15 @@ function makeApp(opts: { failSend?: boolean; signedIn?: boolean; domains?: strin
       return { id: 'msg_out_1', status: 'queued' };
     },
     async listDomains() {
-      return (opts.domains ?? ['myapp.dev']).map((domain) => ({ domain }));
+      return (opts.domains ?? ['myapp.dev']).map((domain, i) => ({
+        id: `dom_${i}`,
+        domain,
+        webhookUrl: opts.webhookUrls?.[domain] ?? null,
+      }));
+    },
+    async setWebhook(id, body) {
+      webhooksSet.push({ id, url: body.url });
+      return {};
     },
   };
   const auth: Auth = {
@@ -58,7 +76,7 @@ function makeApp(opts: { failSend?: boolean; signedIn?: boolean; domains?: strin
     logout: (c) => c.redirect('/'),
   };
   const app = createApp({ store: new SqliteStore(':memory:'), webhookSecret: SECRET, auth, clientFor: () => client });
-  return { app, sent };
+  return { app, sent, webhooksSet };
 }
 
 function postInbound(app: Hono, body: string, signature: string): Promise<Response> {
@@ -185,4 +203,55 @@ test('POST /reply 404s for an unknown message id', async () => {
     body: new URLSearchParams({ id: 'msg_nope', body: 'hi' }).toString(),
   });
   assert.equal(res.status, 404);
+});
+
+test('the inbox offers a one-click Connect for a domain not yet pointing here', async () => {
+  const { app } = makeApp(); // myapp.dev, webhook unset
+  const inbox = await (await app.request('/')).text();
+  assert.match(inbox, /Finish setup/);
+  assert.match(inbox, /Connect myapp\.dev/);
+  assert.match(inbox, /http:\/\/localhost\/inbound/); // the target it will set
+});
+
+test("POST /connect points the owned domain's catch-all webhook at this deployment", async () => {
+  const { app, webhooksSet } = makeApp();
+  const res = await app.request('/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ domainId: 'dom_0' }).toString(),
+  });
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('location'), '/?connected=myapp.dev');
+  // Set via the signed-in user's token, at THIS deployment's own /inbound URL.
+  assert.deepEqual(webhooksSet, [{ id: 'dom_0', url: 'http://localhost/inbound' }]);
+});
+
+test("POST /connect refuses a domain the signed-in user doesn't own (no webhook set)", async () => {
+  const { app, webhooksSet } = makeApp({ domains: ['myapp.dev'] });
+  const res = await app.request('/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ domainId: 'dom_evil' }).toString(),
+  });
+  assert.equal(res.status, 404);
+  assert.equal(webhooksSet.length, 0);
+});
+
+test('a domain already pointing here shows no Connect button', async () => {
+  const { app } = makeApp({ webhookUrls: { 'myapp.dev': 'http://localhost/inbound' } });
+  const inbox = await (await app.request('/')).text();
+  assert.doesNotMatch(inbox, /Finish setup/);
+  assert.doesNotMatch(inbox, /Connect myapp\.dev/);
+});
+
+test('/connect requires sign-in (redirect to /auth/login)', async () => {
+  const { app, webhooksSet } = makeApp({ signedIn: false });
+  const res = await app.request('/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ domainId: 'dom_0' }).toString(),
+  });
+  assert.equal(res.status, 302);
+  assert.match(res.headers.get('location') ?? '', /^\/auth\/login/);
+  assert.equal(webhooksSet.length, 0);
 });

@@ -32,6 +32,19 @@ header.site .sub { font-size: 13px; opacity: .6; }
 .badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #fee2e2; color: #b91c1c; margin-left: 6px; vertical-align: 1px; }
 .empty { padding: 48px 24px; text-align: center; opacity: .65; }
 .empty code { font-size: 13px; }
+.card.setup { margin-bottom: 16px; border-color: #bfdbfe; }
+@media (prefers-color-scheme: dark) { .card.setup { border-color: #1e3a5f; } }
+.setup-head { padding: 12px 16px; font-weight: 600; font-size: 14px; border-bottom: 1px solid #e2e8f0; }
+@media (prefers-color-scheme: dark) { .setup-head { border-color: #1e293b; } }
+.setup-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid #e2e8f0; }
+.setup-row:first-of-type { border-top: 0; }
+@media (prefers-color-scheme: dark) { .setup-row { border-color: #1e293b; } }
+.setup-row .setup-domain { font-weight: 600; }
+.setup-row button { padding: 7px 14px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.setup-row button:hover { background: #1d4ed8; }
+.setup-foot { padding: 10px 16px; font-size: 12px; opacity: .6; border-top: 1px solid #e2e8f0; }
+@media (prefers-color-scheme: dark) { .setup-foot { border-color: #1e293b; } }
+.setup-foot code { font-size: 12px; }
 .msg-head { padding: 16px; border-bottom: 1px solid #e2e8f0; }
 @media (prefers-color-scheme: dark) { .msg-head { border-color: #1e293b; } }
 .msg-head h2 { margin: 0 0 6px; font-size: 17px; }
@@ -89,15 +102,56 @@ function when(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-export const InboxPage: FC<{ messages: StoredMessage[] }> = ({ messages }) => (
+export const InboxPage: FC<{
+  messages: StoredMessage[];
+  domains: Array<{ id: string; domain: string; connected: boolean }>;
+  selfInbound: string;
+  connected?: string;
+  error?: string;
+}> = ({ messages, domains, selfInbound, connected, error }) => {
+  const unconnected = domains.filter((d) => !d.connected);
+  return (
   <Layout title="Inbound Inbox">
+    {connected ? (
+      <p class="note ok">{connected} connected — inbound mail now arrives here.</p>
+    ) : null}
+    {error ? <p class="note err">Couldn’t connect the domain: {error}</p> : null}
+    {domains.length === 0 ? (
+      <div class="card">
+        <div class="empty">
+          <p>No domains yet.</p>
+          <p>
+            Add and verify a domain in <a href="https://app.mailkite.dev">MailKite</a>, then refresh —
+            you’ll be able to point its mail here in one click.
+          </p>
+        </div>
+      </div>
+    ) : unconnected.length > 0 ? (
+      <div class="card setup">
+        <div class="setup-head">Finish setup — point a domain’s mail at this inbox</div>
+        {unconnected.map((d) => (
+          <form class="setup-row" method="post" action="/connect">
+            <input type="hidden" name="domainId" value={d.id} />
+            <span class="setup-domain">{d.domain}</span>
+            <button type="submit">Connect {d.domain}</button>
+          </form>
+        ))}
+        <div class="setup-foot">
+          Sets the domain’s catch-all webhook to <code>{selfInbound}</code> using your signed-in
+          session — no API key stored. Reversible anytime in the MailKite dashboard.
+        </div>
+      </div>
+    ) : null}
     <div class="card">
       {messages.length === 0 ? (
         <div class="empty">
           <p>No mail yet.</p>
           <p>
-            Send an email to any address on your verified domain — it lands here via your
-            MailKite webhook (<code>POST /inbound</code>).
+            {unconnected.length > 0 ? (
+              <>Connect a domain above, then send it an email — it lands here via <code>POST /inbound</code>.</>
+            ) : (
+              <>Send an email to any address on your connected domain — it lands here via <code>POST /inbound</code>.</>
+            )}
           </p>
         </div>
       ) : (
@@ -117,7 +171,8 @@ export const InboxPage: FC<{ messages: StoredMessage[] }> = ({ messages }) => (
       )}
     </div>
   </Layout>
-);
+  );
+};
 
 export const MessagePage: FC<{ msg: StoredMessage; sent?: boolean; error?: string }> = ({
   msg,

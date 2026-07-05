@@ -24,9 +24,21 @@ export interface AppDeps {
   clientFor: (accessToken: string) => ApiClient;
 }
 
-type Vars = { client: ApiClient; ownedDomains: Set<string> };
+type OwnedDomain = { id: string; domain: string; webhookUrl: string | null };
+type Vars = { client: ApiClient; ownedDomains: Set<string>; ownedDomainList: OwnedDomain[] };
 
 const domainOf = (addr: string): string => addr.split('@').pop()?.toLowerCase() ?? '';
+
+// This deployment's own public origin, derived from the request so it's correct on every host
+// (Railway/Render/Fly/CF all sit behind a TLS proxy — honor x-forwarded-proto, don't assume the
+// internal http). Used to point a domain's webhook back at us and to detect "already connected".
+function selfInboundUrl(c: Context): string {
+  const proto =
+    (c.req.header('x-forwarded-proto') ?? '').split(',')[0].trim() ||
+    new URL(c.req.url).protocol.replace(':', '');
+  const host = c.req.header('host') ?? new URL(c.req.url).host;
+  return `${proto}://${host}/inbound`;
+}
 
 export function createApp({ store, webhookSecret, auth, clientFor }: AppDeps): Hono {
   const app = new Hono<{ Variables: Vars }>();
@@ -40,6 +52,7 @@ export function createApp({ store, webhookSecret, auth, clientFor }: AppDeps): H
   app.use('/', gate);
   app.use('/messages/*', gate);
   app.use('/reply', gate);
+  app.use('/connect', gate);
 
   async function gate(c: Context<{ Variables: Vars }>, next: Next): Promise<Response | void> {
     const user = await auth.resolve(c);
@@ -49,7 +62,7 @@ export function createApp({ store, webhookSecret, auth, clientFor }: AppDeps): H
       return c.redirect(`/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
     }
     const client = clientFor(user.accessToken);
-    let domains: Array<{ domain: string }>;
+    let domains: OwnedDomain[];
     try {
       domains = await client.listDomains();
     } catch {
@@ -57,6 +70,7 @@ export function createApp({ store, webhookSecret, auth, clientFor }: AppDeps): H
       return c.redirect('/auth/logout');
     }
     c.set('client', client);
+    c.set('ownedDomainList', domains);
     c.set('ownedDomains', new Set(domains.map((d) => d.domain.toLowerCase())));
     await next();
   }
@@ -64,8 +78,39 @@ export function createApp({ store, webhookSecret, auth, clientFor }: AppDeps): H
   // --- Inbox UI (scoped to the signed-in user's domains) ---------------------
   app.get('/', async (c) => {
     const owned = c.get('ownedDomains');
+    const self = selfInboundUrl(c);
+    const domains = c.get('ownedDomainList').map((d) => ({
+      id: d.id,
+      domain: d.domain,
+      connected: d.webhookUrl === self,
+    }));
     const messages = (await store.list()).filter((m) => owned.has(domainOf(m.toAddr)));
-    return c.html(<InboxPage messages={messages} />);
+    return c.html(
+      <InboxPage
+        messages={messages}
+        domains={domains}
+        selfInbound={self}
+        connected={c.req.query('connected') || undefined}
+        error={c.req.query('error') || undefined}
+      />,
+    );
+  });
+
+  // --- One-click connect: point a domain's catch-all webhook at THIS deployment --------------
+  // Uses the signed-in user's own OAuth token (never a stored API key), and only for a domain they
+  // own — so it can't hijack anyone else's webhook. Idempotent: re-clicking just re-sets the URL.
+  app.post('/connect', async (c) => {
+    const form = await c.req.parseBody();
+    const domainId = typeof form.domainId === 'string' ? form.domainId : '';
+    const target = c.get('ownedDomainList').find((d) => d.id === domainId);
+    if (!target) return c.html(<NotFoundPage />, 404); // not yours / unknown → don't reveal
+    try {
+      await c.get('client').setWebhook(target.id, { url: selfInboundUrl(c) });
+      return c.redirect(`/?connected=${encodeURIComponent(target.domain)}`);
+    } catch (e) {
+      const detail = e instanceof MailKiteError ? e.message : 'could not set webhook';
+      return c.redirect(`/?error=${encodeURIComponent(detail)}`);
+    }
   });
 
   app.get('/messages/:id', async (c) => {
