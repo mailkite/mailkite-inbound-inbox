@@ -1,6 +1,6 @@
 # Inbound Inbox — your app's email inbox in one deploy
 
-Give your app a real email inbox in about two minutes. [MailKite](https://mailkite.dev) turns
+Give your app a real email inbox in about two minutes. [MailKite](https://mailkite.dev/?utm_source=template&utm_medium=template&utm_campaign=inbound-inbox) turns
 inbound email into a signed webhook; this template receives it, verifies the signature with the
 official [`mailkite`](https://www.npmjs.com/package/mailkite) SDK, stores the message, renders a
 minimal server-side inbox UI, and lets you reply — threaded — with one form.
@@ -37,7 +37,7 @@ API key or OAuth client id/secret to enter).
 MailKite **gates inbound webhooks until your domain passes DNS verification** — without this
 step no mail will ever reach the app.
 
-1. Sign up at [app.mailkite.dev](https://app.mailkite.dev) and add a domain (or buy one there,
+1. Sign up at [app.mailkite.dev](https://app.mailkite.dev/?utm_source=template&utm_medium=template&utm_campaign=inbound-inbox) and add a domain (or buy one there,
    pre-wired).
 2. Add the DNS records it shows you — **MX** for receiving (plus SPF + DKIM for sending replies).
 3. Wait for the domain to show **verified**. That's it — you don't need to set any secret: after
